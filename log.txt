@@ -1,1 +1,0 @@
-/api/products GET/api/products GET/api/products PUT/api/products/3 PUT/api/products/3 GET/api/products GET/api/products POST/api/products GET/api/products POST/api/products GET/api/products GET/api/products POST/api/products GET
