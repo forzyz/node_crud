@@ -1,10 +1,15 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import dotenv from "dotenv";
+import fs from "fs/promises";
+import { promisify } from "util";
+import crypto from "crypto";
 dotenv.config();
 
 const PORT = process.env.PORT || 8000;
 
 type Product = "Vegetable" | "Fruit";
+
+const randomBytes = promisify(crypto.randomBytes);
 
 interface IProduct {
     id: number;
@@ -18,6 +23,31 @@ const products: IProduct[] = [
     { id: 2, name: "Apple", price: 10, type: "Fruit" },
     { id: 3, name: "Avocado", price: 30, type: "Vegetable" },
 ];
+
+const logger = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: () => void
+) => {
+    const logToFile = async () => {
+        try {
+            await fs.appendFile("./log.txt", `${req.url} ${req.method}`);
+        } catch (err) {
+            console.log(err);
+        }
+    };
+    logToFile();
+    next();
+};
+
+const jsonMiddleware = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: () => void
+) => {
+    res.setHeader("Content-Type", "application/json");
+    next();
+};
 
 const validateData = (product: IProduct): string | undefined => {
     if (
@@ -54,7 +84,7 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
         data += chunk.toString();
     });
 
-    req.on("end", () => {
+    req.on("end", async () => {
         if (!data) {
             res.statusCode = 400;
             return res.end(JSON.stringify({ message: "Invalid request data" }));
@@ -72,9 +102,14 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
             return res.end(JSON.stringify({ message: err }));
         }
 
-        products.push(newProduct);
+        const buf = await randomBytes(8);
+        const newId = parseInt(buf.toString("hex"), 16);
+
+        let { id, ...productWithoutID } = newProduct;
+
+        products.push({ id: newId, ...productWithoutID });
         res.statusCode = 201;
-        res.end(JSON.stringify(newProduct));
+        res.end(JSON.stringify({id: newId, ...productWithoutID}));
     });
 };
 
@@ -145,9 +180,9 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
     });
 
     req.on("end", () => {
-        if(!data) {
+        if (!data) {
             res.statusCode = 400;
-            return res.end(JSON.stringify({message: "Invalid request data"}))
+            return res.end(JSON.stringify({ message: "Invalid request data" }));
         }
 
         let updatedProduct = JSON.parse(data);
@@ -165,10 +200,13 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
 
         if (prodIndex === -1) {
             res.statusCode = 404;
-            return res.end(JSON.stringify({message: "Product not found"}))
+            return res.end(JSON.stringify({ message: "Product not found" }));
         }
 
-        products.splice(prodIndex, 1, updatedProduct);
+        products[prodIndex] = {
+            ...products[prodIndex],
+            ...updatedProduct,
+        };
 
         res.statusCode = 200;
         res.end(JSON.stringify(updatedProduct));
@@ -176,37 +214,39 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
 };
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    res.setHeader("Content-Type", "application/json");
+    logger(req, res, () => {
+        jsonMiddleware(req, res, () => {
+            if (!req.url || req.url === "/") {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ message: "Invalid request url" }));
+                return;
+            }
 
-    if (!req.url || req.url === "/") {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: "Invalid request url" }));
-        return;
-    }
-
-    if (req.url === "/api/products" && req.method === "POST") {
-        createProductHandler(req, res);
-    } else if (req.url === "/api/products" && req.method === "GET") {
-        getProductsHandler(req, res);
-    } else if (
-        req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
-        req.method === "GET"
-    ) {
-        getProductByIdHandler(req, res);
-    } else if (
-        req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
-        req.method === "DELETE"
-    ) {
-        deleteProductHandler(req, res);
-    } else if (
-        req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
-        req.method === "PUT"
-    ) {
-        updateProductHandler(req, res);
-    } else {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ message: "Invalid request url" }));
-    }
+            if (req.url === "/api/products" && req.method === "POST") {
+                createProductHandler(req, res);
+            } else if (req.url === "/api/products" && req.method === "GET") {
+                getProductsHandler(req, res);
+            } else if (
+                req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
+                req.method === "GET"
+            ) {
+                getProductByIdHandler(req, res);
+            } else if (
+                req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
+                req.method === "DELETE"
+            ) {
+                deleteProductHandler(req, res);
+            } else if (
+                req.url.match(/\api\/products\/([0-9a-fA-F]+)/) &&
+                req.method === "PUT"
+            ) {
+                updateProductHandler(req, res);
+            } else {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ message: "Invalid request url" }));
+            }
+        });
+    });
 });
 
 server.listen(PORT, () => {
