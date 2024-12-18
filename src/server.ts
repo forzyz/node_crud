@@ -19,6 +19,28 @@ const products: IProduct[] = [
     { id: 3, name: "Avocado", price: 30, type: "Vegetable" },
 ];
 
+const validate = (product: IProduct): string | undefined => {
+    if (
+        typeof product.name !== "string" ||
+        typeof product.price !== "number" ||
+        !["Vegetable", "Fruit"].includes(product.type)
+    ) {
+        return "Invalid product data";
+    } else if (
+        !product.name ||
+        typeof product.name !== "string" ||
+        product.name.trim().length === 0
+    ) {
+        return "Missing or invalid 'name' field";
+    } else if (
+        !product.price ||
+        typeof product.price !== "number" ||
+        product.price <= 0
+    ) {
+        return "Missing or invalid 'price' field";
+    }
+};
+
 const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
     let data = "";
 
@@ -33,39 +55,15 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
         }
 
         const newProduct: IProduct = JSON.parse(data);
-
         if (!newProduct) {
             res.statusCode = 404;
             return res.end(JSON.stringify({ message: "User not found!" }));
-        } else if (
-            typeof newProduct.name !== "string" ||
-            typeof newProduct.price !== "number" ||
-            !["Vegetable", "Fruit"].includes(newProduct.type)
-        ) {
+        }
+
+        const err = validate(newProduct);
+        if (err) {
             res.statusCode = 400;
-            return res.end(JSON.stringify({ message: "Invalid product data" }));
-        } else if (
-            !newProduct.name ||
-            typeof newProduct.name !== "string" ||
-            newProduct.name.trim().length === 0
-        ) {
-            res.statusCode = 400;
-            return res.end(
-                JSON.stringify({
-                    message: "Missing or invalid 'name' field",
-                })
-            );
-        } else if (
-            !newProduct.price ||
-            typeof newProduct.price !== "number" ||
-            newProduct.price <= 0
-        ) {
-            res.statusCode = 400;
-            return res.end(
-                JSON.stringify({
-                    message: "Missing or invalid 'price' field",
-                })
-            );
+            return res.end(JSON.stringify({ message: err }));
         }
 
         products.push(newProduct);
@@ -74,11 +72,50 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
     });
 };
 
+const getProductsHandler = (req: IncomingMessage, res: ServerResponse) => {
+    if (products) {
+        res.statusCode = 200;
+        res.end(JSON.stringify(products));
+    } else {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ message: "Products not found" }));
+    }
+};
+
+const getProductByIdHandler = (req: IncomingMessage, res: ServerResponse) => {
+    const id = req.url?.split("/")[3];
+
+    if (id) {
+        const product = products.find((item) => item.id === parseInt(id));
+
+        if (!product) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ message: "Product not found" }));
+        } else {
+            res.statusCode = 200;
+            res.end(JSON.stringify(product));
+        }
+    } else {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ message: "Invalid product id" }));
+    }
+};
+
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     res.setHeader("Content-Type", "application/json");
 
+    if (!req.url || req.url === "/") {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ message: "Invalid request url" }));
+        return;
+    }
+
     if (req.url === "/api/products" && req.method === "POST") {
         createProductHandler(req, res);
+    } else if (req.url === "/api/products" && req.method === "GET") {
+        getProductsHandler(req, res);
+    } else if (req.url.match(/\api\/products\/([0-9a-fA-F]+)/)) {
+        getProductByIdHandler(req, res);
     }
 });
 
