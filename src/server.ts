@@ -31,7 +31,7 @@ const logger = (
 ) => {
     const logToFile = async () => {
         try {
-            await fs.appendFile("./log.txt", `${req.url} ${req.method}`);
+            await fs.appendFile("./log.txt", `${req.url} ${req.method}\n`);
         } catch (err) {
             console.log(err);
         }
