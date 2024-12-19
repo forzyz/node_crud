@@ -1,28 +1,12 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import dotenv from "dotenv";
 import fs from "fs/promises";
-import { promisify } from "util";
-import crypto from "crypto";
+import { collection } from "./db";
+import { IProduct } from "./types";
+import { ObjectId } from "mongodb";
 dotenv.config();
 
 const PORT = process.env.PORT || 8000;
-
-type Product = "Vegetable" | "Fruit";
-
-const randomBytes = promisify(crypto.randomBytes);
-
-interface IProduct {
-    id: number;
-    name: string;
-    price: number;
-    type: Product;
-}
-
-const products: IProduct[] = [
-    { id: 1, name: "Orange", price: 15, type: "Fruit" },
-    { id: 2, name: "Apple", price: 10, type: "Fruit" },
-    { id: 3, name: "Avocado", price: 30, type: "Vegetable" },
-];
 
 const logger = (
     req: IncomingMessage,
@@ -33,11 +17,10 @@ const logger = (
         try {
             await fs.appendFile("./log.txt", `${req.url} ${req.method}\n`);
         } catch (err) {
-            console.log(err);
+            console.error("Error while logging request: ", err);
         }
     };
-    logToFile();
-    next();
+    logToFile().then(() => next());
 };
 
 const jsonMiddleware = (
@@ -71,9 +54,9 @@ const validateData = (product: IProduct): string | undefined => {
     }
 };
 
-const validateID = (req: IncomingMessage): number | undefined => {
+const validateID = (req: IncomingMessage): string | undefined => {
     if (req.url) {
-        return parseInt(req.url.split("/")[3]);
+        return req.url.split("/")[3];
     }
 };
 
@@ -102,61 +85,97 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
             return res.end(JSON.stringify({ message: err }));
         }
 
-        const buf = await randomBytes(8);
-        const newId = parseInt(buf.toString("hex"), 16);
+        try {
+            await collection.insertOne(newProduct);
 
-        let { id, ...productWithoutID } = newProduct;
-
-        products.push({ id: newId, ...productWithoutID });
-        res.statusCode = 201;
-        res.end(JSON.stringify({id: newId, ...productWithoutID}));
+            res.statusCode = 201;
+            res.end(JSON.stringify(newProduct));
+        } catch (err) {
+            console.error(err);
+        }
     });
 };
 
-const getProductsHandler = (req: IncomingMessage, res: ServerResponse) => {
-    if (products) {
-        res.statusCode = 200;
-        res.end(JSON.stringify(products));
+const getProductsHandler = async (
+    req: IncomingMessage,
+    res: ServerResponse
+) => {
+    if (collection) {
+        try {
+            res.statusCode = 200;
+            const products = await collection.find({}).toArray();
+            res.end(JSON.stringify(products));
+        } catch (err) {
+            console.error(err);
+            res.statusCode = 404;
+            return res.end(
+                JSON.stringify({ message: "Error while finding products" })
+            );
+        }
     } else {
         res.statusCode = 404;
-        res.end(JSON.stringify({ message: "Products not found" }));
+        return res.end(JSON.stringify({ message: "Products not found" }));
     }
 };
 
-const getProductByIdHandler = (req: IncomingMessage, res: ServerResponse) => {
+const getProductByIdHandler = async (
+    req: IncomingMessage,
+    res: ServerResponse
+) => {
     const id = validateID(req);
 
     if (id) {
-        const product = products.find((item) => item.id === id);
+        try {
+            const objId = ObjectId.createFromHexString(id);
+            const product = await collection.findOne(objId);
 
-        if (!product) {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ message: "Product not found" }));
-        } else {
-            res.statusCode = 200;
-            res.end(JSON.stringify(product));
+            if (!product) {
+                res.statusCode = 404;
+                return res.end(
+                    JSON.stringify({ message: "Product not found" })
+                );
+            } else {
+                res.statusCode = 200;
+                return res.end(JSON.stringify(product));
+            }
+        } catch (err) {
+            console.error("Error while finding product: ", err);
+            res.statusCode = 500;
+            return res.end(
+                JSON.stringify({ message: "Internal server error" })
+            );
         }
     } else {
         res.statusCode = 400;
-        res.end(JSON.stringify({ message: "Invalid product id" }));
+        return res.end(JSON.stringify({ message: "Invalid product id" }));
     }
 };
 
-const deleteProductHandler = (req: IncomingMessage, res: ServerResponse) => {
+const deleteProductHandler = async (
+    req: IncomingMessage,
+    res: ServerResponse
+) => {
     const id = req.url?.split("/")[3];
 
     if (id) {
-        const prodIndex = products.findIndex(
-            (item) => item.id === parseInt(id)
-        );
+        try {
+            const objId = ObjectId.createFromHexString(id);
 
-        if (prodIndex === -1) {
-            res.statusCode = 404;
-            return res.end(JSON.stringify({ message: "Product not found" }));
+            const result = await collection.deleteOne({ _id: objId });
+
+            if (result.deletedCount === 0) {
+                res.statusCode = 404;
+                return res.end(
+                    JSON.stringify({ message: "Product not found to delete" })
+                );
+            }
+        } catch (err) {
+            console.error("Error while deleting a product");
+            res.statusCode = 500;
+            return res.end(
+                JSON.stringify({ message: "Internal server error" })
+            );
         }
-
-        products.splice(prodIndex, 1);
-
         res.statusCode = 200;
         res.end(JSON.stringify({ message: "Product deleted successfully" }));
     } else {
@@ -179,7 +198,7 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
         data += chunk;
     });
 
-    req.on("end", () => {
+    req.on("end", async () => {
         if (!data) {
             res.statusCode = 400;
             return res.end(JSON.stringify({ message: "Invalid request data" }));
@@ -194,22 +213,30 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
             return res.end(JSON.stringify({ message: err }));
         }
 
-        const prodIndex = products.findIndex(
-            (item) => item.id === updatedProduct.id
-        );
+        try {
+            const objId = ObjectId.createFromHexString(id);
 
-        if (prodIndex === -1) {
-            res.statusCode = 404;
-            return res.end(JSON.stringify({ message: "Product not found" }));
+            const result = await collection.updateOne(
+                { _id: objId },
+                { $set: updatedProduct }
+            );
+
+            if (result.modifiedCount === 0) {
+                res.statusCode = 404;
+                return res.end(
+                    JSON.stringify({ message: "No data to modified" })
+                );
+            }
+
+            res.statusCode = 200;
+            return res.end(JSON.stringify(updatedProduct));
+        } catch (err) {
+            console.error("Error while updating data:", err);
+            res.statusCode = 500;
+            return res.end(
+                JSON.stringify({ message: "Internal server error" })
+            );
         }
-
-        products[prodIndex] = {
-            ...products[prodIndex],
-            ...updatedProduct,
-        };
-
-        res.statusCode = 200;
-        res.end(JSON.stringify(updatedProduct));
     });
 };
 
@@ -243,7 +270,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
                 updateProductHandler(req, res);
             } else {
                 res.statusCode = 400;
-                res.end(JSON.stringify({ message: "Invalid request url" }));
+                return res.end(
+                    JSON.stringify({ message: "Invalid request url" })
+                );
             }
         });
     });
