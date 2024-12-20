@@ -5,3 +5,8 @@ export interface IProduct {
     price: number;
     type: Product;
 }
+
+export interface User {
+    name: string;
+    password: string;
+}

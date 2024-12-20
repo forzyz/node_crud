@@ -1,13 +1,15 @@
-import { IncomingMessage, ServerResponse } from "http";
-import { IProduct } from "../types";
-import { validateData, validateID } from "../utils";
-import { collection } from "../db";
+import { IncomingMessage, Server, ServerResponse } from "http";
+import { IProduct, User } from "../types";
+import { generateToken, validateData, validateID } from "../utils";
+import { collection, database } from "../db";
 import { ObjectId } from "mongodb";
 import {
     createProduct,
+    createUser,
     deleteProduct,
     getProductById,
     getProducts,
+    getUser,
     updateProduct,
 } from "../models/productModel";
 
@@ -214,7 +216,7 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
             res.statusCode = 400;
             return res.end(JSON.stringify({ message: "Invalid JSON data" }));
         }
-        
+
         const err = validateData(updatedProduct);
         if (err) {
             res.statusCode = 400;
@@ -263,10 +265,72 @@ const updateProductHandler = (req: IncomingMessage, res: ServerResponse) => {
     });
 };
 
+const loginHandler = (req: IncomingMessage, res: ServerResponse) => {
+    let data = "";
+
+    req.on("data", (chunk: Buffer | string) => {
+        data += chunk.toString();
+    });
+
+    req.on("end", async () => {
+        let createdUser: User;
+
+        try {
+            createdUser = JSON.parse(data);
+        } catch (err) {
+            console.error("Error while parsing data: ", err);
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ message: "Invalid JSON data" }));
+        }
+
+        const { name, password } = createdUser;
+
+        if (
+            !name ||
+            typeof name !== "string" ||
+            !password ||
+            typeof password !== "string"
+        ) {
+            res.statusCode = 400;
+            return res.end(
+                JSON.stringify({ message: "Invalid token data provided" })
+            );
+        }
+
+        let user;
+
+        try {
+            user = await getUser(name, password);
+        } catch (err) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({message: "Internal server error"}))
+        }
+
+        if (!user) {
+            const result = await createUser(name, password);
+            if (result.insertedId) {
+                const token = generateToken(result.insertedId);
+                res.statusCode = 201;
+                return res.end(JSON.stringify(token));
+            } else {
+                res.statusCode = 500;
+                return res.end(
+                    JSON.stringify({ message: "Failed to create user" })
+                );
+            }
+        } else {
+            const token = generateToken(user._id);
+            res.statusCode = 200;
+            return res.end(JSON.stringify(token));
+        }
+    });
+};
+
 export {
     createProductHandler,
     getProductsHandler,
     getProductByIdHandler,
     deleteProductHandler,
     updateProductHandler,
+    loginHandler,
 };
