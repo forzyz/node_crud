@@ -7,6 +7,7 @@ import {
     createProduct,
     createUser,
     deleteProduct,
+    getProduct,
     getProductById,
     getProducts,
     getUser,
@@ -33,6 +34,25 @@ const createProductHandler = (req: IncomingMessage, res: ServerResponse) => {
             console.error("Error while parsing data: ", err);
             res.statusCode = 400;
             return res.end(JSON.stringify({ message: "Invalid JSON data" }));
+        }
+
+        let isProduct;
+
+        try {
+            isProduct = await getProduct(newProduct);
+        } catch (err) {
+            console.error("Error while get product: ", err);
+            res.statusCode = 500;
+            return res.end(
+                JSON.stringify({ message: "Internal server error" })
+            );
+        }
+
+        if (isProduct) {
+            res.statusCode = 400;
+            return res.end(
+                JSON.stringify({ message: "Product is already exist" })
+            );
         }
 
         if (!newProduct) {
@@ -303,7 +323,9 @@ const loginHandler = (req: IncomingMessage, res: ServerResponse) => {
             user = await getUser(name, password);
         } catch (err) {
             res.statusCode = 500;
-            return res.end(JSON.stringify({message: "Internal server error"}))
+            return res.end(
+                JSON.stringify({ message: "Internal server error" })
+            );
         }
 
         if (!user) {

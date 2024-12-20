@@ -6,8 +6,8 @@ export const createProduct = async (product: IProduct) => {
     try {
         const result = await collection.insertOne(product);
         return result;
-    } catch (error) {
-        console.error("Error creating product:", error);
+    } catch (err) {
+        console.error("Error creating product:", err);
         throw new Error("Failed to create product");
     }
 };
@@ -16,9 +16,19 @@ export const getProducts = async () => {
     try {
         const products = await collection.find({}).toArray();
         return products;
-    } catch (error) {
-        console.error("Error fetching products:", error);
+    } catch (err) {
+        console.error("Error fetching products: ", err);
         throw new Error("Failed to fetch products");
+    }
+};
+
+export const getProduct = async (product: IProduct) => {
+    try {
+        const result = await collection.findOne({ name: product.name });
+        return result;
+    } catch (err) {
+        console.error("Error fecthing product: ", err);
+        throw new Error("Failed to fetch product");
     }
 };
 
@@ -29,8 +39,8 @@ export const getProductById = async (id: ObjectId) => {
             throw new Error("Product not found");
         }
         return product;
-    } catch (error) {
-        console.error("Error fetching product by ID:", error);
+    } catch (err) {
+        console.error("Error fetching product by ID: ", err);
         throw new Error("Failed to fetch product");
     }
 };
@@ -42,8 +52,8 @@ export const deleteProduct = async (id: ObjectId) => {
             throw new Error("No product found to delete");
         }
         return result;
-    } catch (error) {
-        console.error("Error deleting product:", error);
+    } catch (err) {
+        console.error("Error deleting product: ", err);
         throw new Error("Failed to delete product");
     }
 };
@@ -58,8 +68,8 @@ export const updateProduct = async (id: ObjectId, product: IProduct) => {
             throw new Error("No data modified");
         }
         return result;
-    } catch (error) {
-        console.error("Error updating product:", error);
+    } catch (err) {
+        console.error("Error updating product: ", err);
         throw new Error("Failed to update product");
     }
 };
@@ -67,10 +77,13 @@ export const updateProduct = async (id: ObjectId, product: IProduct) => {
 export const createUser = async (username: string, pwd: string) => {
     const collection = database.collection<User>("users");
     try {
-        const result = await collection.insertOne({ name: username, password: pwd });
+        const result = await collection.insertOne({
+            name: username,
+            password: pwd,
+        });
         return result;
     } catch (err) {
-        console.error("Error while inserting user");
+        console.error("Error while inserting user: ", err);
         throw new Error("Failed to create user");
     }
 };
@@ -78,14 +91,17 @@ export const createUser = async (username: string, pwd: string) => {
 export const getUser = async (username: string, pwd: string) => {
     const collection = database.collection<User>("users");
     try {
-        const user = await collection.findOne({name: username, password: pwd});
+        const user = await collection.findOne({
+            name: username,
+            password: pwd,
+        });
         if (!user) {
             return null;
         }
 
         return user;
     } catch (err) {
-        console.error("Error while getting user");
+        console.error("Error while getting user: ", err);
         throw new Error("Failed to get user");
     }
-}
+};
